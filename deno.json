@@ -1,0 +1,6 @@
+{
+    "tasks": {
+        "dev": "deno run --allow-net --allow-env --env-file main.ts",
+        "prod": "deno run --allow-net --allow-env main.ts"
+    }
+}
