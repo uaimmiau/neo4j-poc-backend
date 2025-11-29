@@ -147,9 +147,8 @@ async function handleClear(): Promise<Response> {
 }
 
 async function handleSeed(): Promise<Response> {
-    // 1) Suppliers, materials, models, SUPPLIES
-    const q1 = `
-    // suppliers
+    // 1) Suppliers
+    const qSuppliers = `
     UNWIND [
       {supplierId:'S1', name:'Alpha Components', qualityGroup:'GOOD'},
       {supplierId:'S2', name:'Bravo Metals',     qualityGroup:'GOOD'},
@@ -159,9 +158,11 @@ async function handleSeed(): Promise<Response> {
     ] AS sData
     MERGE (s:Supplier {supplierId: sData.supplierId})
       ON CREATE SET s.name = sData.name, s.qualityGroup = sData.qualityGroup
-      ON MATCH  SET s.name = sData.name, s.qualityGroup = sData.qualityGroup;
+      ON MATCH  SET s.name = sData.name, s.qualityGroup = sData.qualityGroup
+  `;
 
-    // materials
+    // 2) Materials
+    const qMaterials = `
     UNWIND [
       {materialId:'M1', name:'Plastic Housing'},
       {materialId:'M2', name:'Metal Bracket'},
@@ -170,9 +171,11 @@ async function handleSeed(): Promise<Response> {
     ] AS mData
     MERGE (m:Material {materialId: mData.materialId})
       ON CREATE SET m.name = mData.name
-      ON MATCH  SET m.name = mData.name;
+      ON MATCH  SET m.name = mData.name
+  `;
 
-    // product models
+    // 3) Product models
+    const qModels = `
     UNWIND [
       {modelId:'P1', name:'Widget A'},
       {modelId:'P2', name:'Widget B'},
@@ -180,9 +183,11 @@ async function handleSeed(): Promise<Response> {
     ] AS pData
     MERGE (pm:ProductModel {modelId: pData.modelId})
       ON CREATE SET pm.name = pData.name
-      ON MATCH  SET pm.name = pData.name;
+      ON MATCH  SET pm.name = pData.name
+  `;
 
-    // supplies relationships
+    // 4) SUPPLIES relationships
+    const qSuppliesRels = `
     UNWIND [
       {supplierId:'S1', materials:['M1','M2']},
       {supplierId:'S2', materials:['M1','M3']},
@@ -193,11 +198,11 @@ async function handleSeed(): Promise<Response> {
     MATCH (s:Supplier {supplierId: row.supplierId})
     UNWIND row.materials AS matId
     MATCH (m:Material {materialId: matId})
-    MERGE (s)-[:SUPPLIES]->(m);
+    MERGE (s)-[:SUPPLIES]->(m)
   `;
 
-    // 2) Batches
-    const q2 = `
+    // 5) Batches (same as before, but as a single statement)
+    const qBatches = `
     MATCH (s:Supplier)-[:SUPPLIES]->(m:Material)
     WITH s, m
     UNWIND range(1,5) AS batchNum
@@ -208,11 +213,11 @@ async function handleSeed(): Promise<Response> {
         b.receivedDate = date('2025-01-01') + duration({days: toInteger(rand() * 60)}),
         b.lotNumber    = 'LOT-' + s.supplierId + '-' + m.materialId + '-' + toString(batchNum)
     MERGE (s)-[:DELIVERED]->(b)
-    MERGE (b)-[:OF_MATERIAL]->(m);
+    MERGE (b)-[:OF_MATERIAL]->(m)
   `;
 
-    // 3) Serials & inspections
-    const q3 = `
+    // 6) Serials & inspections (same logic as before)
+    const qSerialsAndInspections = `
     MATCH (b:Batch)<-[:DELIVERED]-(s:Supplier)
     WITH b, s, toInteger(5 + rand() * 10) AS serialCount
     UNWIND range(1, serialCount) AS n
@@ -243,12 +248,22 @@ async function handleSeed(): Promise<Response> {
           ELSE null
         END
     })
-    MERGE (p)-[:HAS_INSPECTION]->(i);
+    MERGE (p)-[:HAS_INSPECTION]->(i)
   `;
 
-    await driver.executeQuery(q1, {}, { database: NEO4J_DATABASE });
-    await driver.executeQuery(q2, {}, { database: NEO4J_DATABASE });
-    await driver.executeQuery(q3, {}, { database: NEO4J_DATABASE });
+    // run them in order – one statement per executeQuery
+    const queries = [
+        qSuppliers,
+        qMaterials,
+        qModels,
+        qSuppliesRels,
+        qBatches,
+        qSerialsAndInspections,
+    ];
+
+    for (const q of queries) {
+        await driver.executeQuery(q, {}, { database: NEO4J_DATABASE });
+    }
 
     return jsonResponse({
         ok: true,
